@@ -1,5 +1,5 @@
 {
     "name": "CoreEngine",
     "version": "0.1.0",
-    "parent_folder": "../../../example"
+    "parent_folder": "../../example"
 }

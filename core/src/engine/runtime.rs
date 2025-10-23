@@ -8,7 +8,7 @@ pub struct Runtime {
     pub host: String,
     pub dev: bool,
     /// Cache mapping full_path -> file contents. Populated at startup in non-dev mode.
-    pub file_cache: std::collections::HashMap<String, String>,
+    pub file_cache: std::collections::HashMap<String, bytes::Bytes>,
 }
 
 impl Runtime {
@@ -18,7 +18,7 @@ impl Runtime {
         if !dev {
             for pf in &project_files {
                 if let Ok(s) = std::fs::read_to_string(&pf.full_path) {
-                    cache.insert(pf.full_path.clone(), s);
+                    cache.insert(pf.full_path.clone(), bytes::Bytes::from(s));
                 }
             }
         }
