@@ -3,7 +3,6 @@
 
 use crate::engine::runtime::Runtime;
 use crate::engine::handler::RequestHandler;
-use crate::logger;
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -36,7 +35,7 @@ impl Server {
 
     pub async fn start(self) {
     // Placeholder start function
-    logger::info(&format!("Starting server at {}:{}", self.http_server.host, self.http_server.port));
+    log::info!("Starting server at {}:{}", self.http_server.host, self.http_server.port);
         // Start HTTP server
         let addr = format!("{}:{}", self.http_server.host, self.http_server.port);
         let handler = self.handler.clone();

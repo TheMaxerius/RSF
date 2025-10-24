@@ -12,6 +12,15 @@ pub struct ProjectFile {
     /// The absolute filesystem path to the file; used when serving the file contents.
     pub full_path: String,
     pub file_type: String, // "ui" or "api"
+    /// Precomputed route segments for fast matching (avoid splitting on every request)
+    pub route_segments: Vec<RouteSegment>,
+}
+
+/// A route segment that can be either static or dynamic (param)
+#[derive(Debug, Clone)]
+pub enum RouteSegment {
+    Static(String),
+    Dynamic(String), // param name
 }
 
 #[derive(Deserialize)]
@@ -47,6 +56,35 @@ fn read_first_line(file_path: &str) -> String {
         }
     }
     String::new()
+}
+
+/// Compute route segments from a file path for fast matching.
+/// Handles index.rs and dynamic segments like [id].
+fn compute_route_segments(file_path: &str) -> Vec<RouteSegment> {
+    // Normalize file path to route segments
+    let fp = file_path.trim();
+    // handle index.rs specially
+    let route_fp = if fp.ends_with("index.rs") {
+        let dir = fp.trim_end_matches("index.rs").trim_end_matches('/');
+        dir.trim_end_matches('/')
+    } else {
+        fp.trim_end_matches(".rs")
+    };
+
+    if route_fp.is_empty() {
+        return Vec::new();
+    }
+
+    route_fp.split('/')
+        .map(|seg| {
+            if seg.starts_with('[') && seg.ends_with(']') {
+                let name = &seg[1..seg.len() - 1];
+                RouteSegment::Dynamic(name.to_string())
+            } else {
+                RouteSegment::Static(seg.to_string())
+            }
+        })
+        .collect()
 }
 
 // Older non-recursive helpers removed; parse_rs_files_in_folder_recursive is used instead.
@@ -140,7 +178,14 @@ fn parse_rs_files_in_folder_recursive(folder_path: &str) -> Vec<ProjectFile> {
                                     Ok(p) => p.to_string_lossy().to_string(),
                                     Err(_) => path.to_string_lossy().to_string(),
                                 };
-                                project_files.push(ProjectFile { file_path: normalized, full_path: full, file_type: file_type.into() });
+                                // Precompute route segments for fast matching
+                                let route_segments = compute_route_segments(&normalized);
+                                project_files.push(ProjectFile { 
+                                    file_path: normalized, 
+                                    full_path: full, 
+                                    file_type: file_type.into(),
+                                    route_segments,
+                                });
                             }
                         }
                     }

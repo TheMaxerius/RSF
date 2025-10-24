@@ -14,11 +14,18 @@ pub async fn run_hyper(handler: Arc<RequestHandler>, addr: std::net::SocketAddr)
                     let method = req.method().as_str().to_string();
                     let path = req.uri().path().to_string();
                     // For simplicity, ignore body for now
-                    let resp = handler.handle_request(&method, &path).await;
-                    // handler.handle_request currently returns raw HTTP string; if you migrate to
-                    // returning structured types you can build HyperResponse directly. We'll wrap
-                    // the raw response into an HTTP 200 with text/plain for compatibility.
-                    Ok::<_, Infallible>(HyperResponse::builder().status(200).body(Body::from(resp)).unwrap())
+                    let my_resp = handler.handle_request(&method, &path).await;
+                    // Build a proper Hyper response using the structured Response returned by handler
+                    let mut builder = HyperResponse::builder()
+                        .status(my_resp.status);
+                    // set content-type and content-length
+                    let body = Body::from(my_resp.body);
+                    let resp = builder
+                        .header("content-type", my_resp.content_type)
+                        .header("content-length", body.size_hint().lower().to_string())
+                        .body(body)
+                        .unwrap_or_else(|_| HyperResponse::new(Body::from("Internal Server Error")));
+                    Ok::<_, Infallible>(resp)
                 }
             }))
         }

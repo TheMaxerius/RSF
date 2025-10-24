@@ -73,7 +73,7 @@ fn main() {
                     // crude detection whether the original returns (String,u16)
                     let returns_tuple = content.contains(&format!("fn {}(", m)) && content.contains("-> (String,");
                     // detect whether the original function takes a reference parameter
-                    let param_is_ref = content.contains(&format!("fn {}(&", m)) || content.contains(&format!("fn {}(&", m.to_lowercase()));
+                    let param_is_ref = content.contains(": &HashMap") || content.contains(":&HashMap");
 
                     // Also detect if the original already returns a Response
                     let returns_response = content.contains("-> Response") || content.contains("-> super::Response") || content.contains("-> crate::engine::Response");
@@ -151,8 +151,12 @@ fn main() {
     } else {
     writeln!(out, "use std::option::Option;\n").unwrap();
         writeln!(out, "pub type Handler = fn(&std::collections::HashMap<String, String>) -> super::Response;\n").unwrap();
-        writeln!(out, "pub fn get_handler(route: &str, method: &str) -> Option<Handler> {{").unwrap();
-        writeln!(out, "    match (route, method) {{").unwrap();
+        
+        // Generate a route matcher that handles both static and dynamic routes
+        writeln!(out, "pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collections::HashMap<String, String>)> {{").unwrap();
+        writeln!(out, "    let route_normalized = route.trim_start_matches('/').trim_end_matches('/');").unwrap();
+        writeln!(out, "    let segments: Vec<&str> = if route_normalized.is_empty() {{ Vec::new() }} else {{ route_normalized.split('/').collect() }};").unwrap();
+        writeln!(out).unwrap();
 
         // For each discovered file, detect which HTTP method handler functions it provides
         let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"];
@@ -170,17 +174,57 @@ fn main() {
                 // check both UPPERCASE and lowercase function names
                 let upper_pat = format!("fn {}(", m);
                 let lower_pat = format!("fn {}(", m.to_lowercase());
-                if content.contains(&upper_pat) {
-                    writeln!(out, "        (\"{}\", \"{}\") => Some({}::{}),", route, m, mod_name, m).unwrap();
-                } else if content.contains(&lower_pat) {
-                    let fname = m.to_lowercase();
-                    writeln!(out, "        (\"{}\", \"{}\") => Some({}::{}),", route, m, mod_name, fname).unwrap();
+                let has_handler = content.contains(&upper_pat) || content.contains(&lower_pat);
+                
+                if has_handler {
+                    let fname = if content.contains(&upper_pat) { m.to_string() } else { m.to_lowercase() };
+                    
+                    // Parse route pattern
+                    let route_pattern = route.trim_start_matches('/').trim_end_matches('/');
+                    let pattern_segments: Vec<&str> = if route_pattern.is_empty() { 
+                        Vec::new() 
+                    } else { 
+                        route_pattern.split('/').collect() 
+                    };
+                    
+                    writeln!(out, "    // Match pattern: {} {}", m, route).unwrap();
+                    writeln!(out, "    if method == \"{}\" && segments.len() == {} {{", m, pattern_segments.len()).unwrap();
+                    
+                    // Generate matching logic
+                    let mut has_dynamics = false;
+                    for (i, seg) in pattern_segments.iter().enumerate() {
+                        if seg.starts_with('[') && seg.ends_with(']') {
+                            has_dynamics = true;
+                        } else {
+                            writeln!(out, "        if segments.get({}) != Some(&\"{}\") {{ /* skip */ }} else", i, seg).unwrap();
+                        }
+                    }
+                    
+                    writeln!(out, "        {{").unwrap();
+                    
+                    // Extract dynamic params
+                    if has_dynamics {
+                        writeln!(out, "            let mut params = std::collections::HashMap::new();").unwrap();
+                        for (i, seg) in pattern_segments.iter().enumerate() {
+                            if seg.starts_with('[') && seg.ends_with(']') {
+                                let param_name = &seg[1..seg.len()-1];
+                                writeln!(out, "            if let Some(val) = segments.get({}) {{", i).unwrap();
+                                writeln!(out, "                params.insert(\"{}\".to_string(), val.to_string());", param_name).unwrap();
+                                writeln!(out, "            }}").unwrap();
+                            }
+                        }
+                        writeln!(out, "            return Some(({}::{}, params));", mod_name, fname).unwrap();
+                    } else {
+                        writeln!(out, "            return Some(({}::{}, std::collections::HashMap::new()));", mod_name, fname).unwrap();
+                    }
+                    
+                    writeln!(out, "        }}").unwrap();
+                    writeln!(out, "    }}").unwrap();
                 }
             }
         }
 
-        writeln!(out, "        _ => None,").unwrap();
-        writeln!(out, "    }}").unwrap();
+        writeln!(out, "    None").unwrap();
         writeln!(out, "}}").unwrap();
     }
 }
@@ -202,9 +246,11 @@ fn collect_rs_files(dir: &Path, files: &mut Vec<std::path::PathBuf>, root: &Path
 
 fn module_name_for(path: &Path) -> String {
     // Convert path/to/foo/bar.rs -> path_to_foo_bar
+    // Also handle dynamic segments like [id] -> _id_
     let s = path.to_string_lossy();
     let s = s.replace("/", "_").replace("\\\\", "_");
     let s = s.replace('.', "_");
+    let s = s.replace('[', "_").replace(']', "_");
     format!("module_{}", s)
 }
 

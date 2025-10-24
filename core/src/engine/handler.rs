@@ -1,14 +1,54 @@
 // handle http requests and route them to the runtime
 use crate::engine::runtime::Runtime;
+use crate::engine::parser::{ProjectFile, RouteSegment};
 use tokio::fs;
 use std::collections::HashMap;
 use std::sync::Arc;
 use dashmap::DashMap;
 use percent_encoding::percent_decode_str;
 use bytes::Bytes;
+use ahash::AHashMap;
+use smallvec::SmallVec;
+use once_cell::sync::Lazy;
+
+// Type alias for route params - uses SmallVec for stack allocation when <= 4 params
+type RouteParams = SmallVec<[(String, String); 4]>;
+
+// Common path strings to avoid allocations
+static HEALTH_PATH: &str = "/health";
+static ROOT_PATH: &str = "/";
 
 // Include the compile-time generated router (created by build.rs)
 include!("generated_routes.rs");
+
+// Static responses to avoid allocations
+static HEALTH_RESPONSE: Lazy<super::Response> = Lazy::new(|| super::Response {
+    status: 200,
+    body: Bytes::from_static(b"OK"),
+    content_type: "text/plain; charset=utf-8",
+    headers: Vec::new(),
+});
+
+static NOT_FOUND_RESPONSE: Lazy<super::Response> = Lazy::new(|| super::Response {
+    status: 404,
+    body: Bytes::from_static(b"Not Found"),
+    content_type: "text/plain; charset=utf-8",
+    headers: Vec::new(),
+});
+
+static BAD_REQUEST_RESPONSE: Lazy<super::Response> = Lazy::new(|| super::Response {
+    status: 400,
+    body: Bytes::from_static(b"Bad Request"),
+    content_type: "text/plain; charset=utf-8",
+    headers: Vec::new(),
+});
+
+static INTERNAL_ERROR_RESPONSE: Lazy<super::Response> = Lazy::new(|| super::Response {
+    status: 500,
+    body: Bytes::from_static(b"Internal Server Error"),
+    content_type: "text/plain; charset=utf-8",
+    headers: Vec::new(),
+});
 
 pub struct Request {
     pub path: String,
@@ -26,8 +66,11 @@ pub struct Response {
 #[derive(Clone, Debug)]
 pub struct RequestHandler {
     pub runtime: Arc<Runtime>,
-    /// Simple in-memory route lookup cache: (method,path) -> file_path
-    pub route_cache: Arc<DashMap<String, Option<String>>>,
+    /// Simple in-memory route lookup cache: (method,path) -> file_path (Arc to avoid cloning large strings)
+    pub route_cache: Arc<DashMap<String, Option<Arc<String>>>>,
+    /// Cache matched params for a (method,path) so we don't re-run match_route on cache hits.
+    /// Using SmallVec for better cache locality and stack allocation
+    pub route_params_cache: Arc<DashMap<String, Option<Arc<RouteParams>>>>,
 }
 
 impl RequestHandler {
@@ -35,56 +78,37 @@ impl RequestHandler {
         RequestHandler {
             runtime: Arc::new(runtime.clone()),
             route_cache: Arc::new(DashMap::new()),
+            route_params_cache: Arc::new(DashMap::new()),
         }
     }
 
     /// Handle a request asynchronously and return a raw HTTP response string.
+    #[inline]
     pub async fn handle_request(&self, method: &str, raw_path: &str) -> super::Response {
         let method = method.to_string();
 
         // Basic sanitization and decode path
         let path = sanitize_and_decode_path(raw_path);
-        if method.eq_ignore_ascii_case("GET") && path == "/health" {
+        if method.eq_ignore_ascii_case("GET") && path == HEALTH_PATH {
             return super::Response {
-                status: 200,
-                body: Bytes::from_static(b"OK"),
-                content_type: "text/plain; charset=utf-8",
+                status: HEALTH_RESPONSE.status,
+                body: HEALTH_RESPONSE.body.clone(),
+                content_type: HEALTH_RESPONSE.content_type,
                 headers: Vec::new(),
             };
         }
 
-        // Try compile-time generated router first
-        if let Some(h) = get_handler(&path, &method) {
-            // Attempt to find matching project file quickly using the cache
-            let cache_key = format!("{}:{}", method, path);
-            if let Some(entry) = self.route_cache.get(&cache_key) {
-                if let Some(file_path) = entry.value().clone() {
-                    if let Some(params) = match_route(&file_path, &path) {
-                        let resp = h(&params);
-                        return resp;
-                    }
-                }
-            }
-
-            // not in cache: search project files and populate cache
-            for file in &self.runtime.project_files {
-                if let Some(params) = match_route(&file.file_path, &path) {
-                    // cache positive hit
-                    self.route_cache.insert(cache_key.clone(), Some(file.file_path.clone()));
-                    // call the handler function with params
-                    let resp = h(&params);
-                    return resp;
-                }
-            }
-
-            // cache negative result to avoid repeated work
-            self.route_cache.insert(cache_key, None);
+        // Try compile-time generated router first - now returns (handler, params)
+        if let Some((h, params)) = get_handler(&path, &method) {
+            // Use the extracted params from the router directly
+            let resp = h(&params);
+            return resp;
         }
 
         // fallback: serve registered files directly (useful during development)
         if method.eq_ignore_ascii_case("GET") {
             for file in &self.runtime.project_files {
-                if let Some(params) = match_route(&file.file_path, &path) {
+                if let Some(params) = match_route_fast(file, &path) {
                     // Security: prefer cached contents in production
                     if !self.runtime.dev {
                         if let Some(cached) = self.runtime.file_cache.get(&file.full_path) {
@@ -156,18 +180,62 @@ impl RequestHandler {
         }
 
         super::Response {
-            status: 404,
-            body: Bytes::from_static(b"Not Found"),
-            content_type: "text/plain; charset=utf-8",
+            status: NOT_FOUND_RESPONSE.status,
+            body: NOT_FOUND_RESPONSE.body.clone(),
+            content_type: NOT_FOUND_RESPONSE.content_type,
             headers: Vec::new(),
         }
     }
 }
 
-/// Match a request path against a project file path which may include Next.js-style
-/// dynamic segments like `users/[id].rs` or `admin/index.rs`.
-/// Returns a map of param name -> value when matched.
-fn match_route(file_fp: &str, req_path: &str) -> Option<HashMap<String, String>> {
+/// Match a request path against precomputed route segments from a ProjectFile.
+/// Returns SmallVec of params for better cache locality. Optimized with precomputed segments.
+#[inline(always)]
+fn match_route_fast(file: &crate::engine::parser::ProjectFile, req_path: &str) -> Option<RouteParams> {
+    use crate::engine::parser::RouteSegment;
+    
+    // strip query string
+    let req = req_path.split('?').next().unwrap_or("").trim();
+    let req = if req == "/" {
+        ""
+    } else {
+        req.trim_start_matches('/').trim_end_matches('/')
+    };
+
+    let req_segments: Vec<&str> = if req.is_empty() {
+        Vec::new()
+    } else {
+        req.split('/').collect()
+    };
+
+    if file.route_segments.len() != req_segments.len() {
+        return None;
+    }
+
+    // Use SmallVec for stack allocation when <= 4 params
+    let mut params = RouteParams::new();
+    for (route_seg, rseg) in file.route_segments.iter().zip(req_segments.iter()) {
+        match route_seg {
+            RouteSegment::Dynamic(name) => {
+                // decode percent-encoding in rseg
+                let decoded = percent_decode_str(rseg).decode_utf8_lossy().to_string();
+                params.push((name.clone(), decoded));
+            }
+            RouteSegment::Static(expected) => {
+                let decoded = percent_decode_str(rseg).decode_utf8_lossy();
+                if expected != &*decoded {
+                    return None;
+                }
+            }
+        }
+    }
+
+    Some(params)
+}
+
+/// Legacy match_route for backward compatibility (uses file_path string)
+#[inline]
+fn match_route(file_fp: &str, req_path: &str) -> Option<RouteParams> {
     // strip query string
     let req = req_path.split('?').next().unwrap_or("").trim();
     let req = if req == "/" {
@@ -201,13 +269,13 @@ fn match_route(file_fp: &str, req_path: &str) -> Option<HashMap<String, String>>
         return None;
     }
 
-    let mut params = HashMap::new();
+    let mut params = RouteParams::new();
     for (fseg, rseg) in fp_segments.iter().zip(req_segments.iter()) {
         // decode percent-encoding in rseg
         let decoded = percent_decode_str(rseg).decode_utf8_lossy().to_string();
         if fseg.starts_with('[') && fseg.ends_with(']') {
             let name = &fseg[1..fseg.len() - 1];
-            params.insert(name.to_string(), decoded);
+            params.push((name.to_string(), decoded));
             continue;
         }
         if fseg != &decoded {
@@ -218,16 +286,19 @@ fn match_route(file_fp: &str, req_path: &str) -> Option<HashMap<String, String>>
     Some(params)
 }
 
+#[inline(always)]
 fn sanitize_and_decode_path(p: &str) -> String {
     // remove any trailing/leading whitespace, disallow \0, and decode percent-encoding
     let p = p.trim().split('\0').next().unwrap_or("");
     // Only keep path component before query
     let before_q = p.split('?').next().unwrap_or("");
-    let decoded = percent_decode_str(before_q).decode_utf8_lossy().to_string();
+    let decoded = percent_decode_str(before_q).decode_utf8_lossy();
+    
     // collapse // and remove .. segments for basic traversal protection
-    let mut parts = Vec::new();
+    // Preallocate capacity based on decoded length
+    let mut parts = Vec::with_capacity(8); // typical depth
     for seg in decoded.split('/') {
-        if seg == "" || seg == "." {
+        if seg.is_empty() || seg == "." {
             continue;
         }
         if seg == ".." {
@@ -236,34 +307,55 @@ fn sanitize_and_decode_path(p: &str) -> String {
         }
         parts.push(seg);
     }
-    let s = format!("/{}", parts.join("/"));
-    if s == "/" {
-        "/".to_string()
-    } else {
-        s
+    
+    if parts.is_empty() {
+        return "/".to_string();
     }
+    
+    // Preallocate string capacity to avoid reallocs
+    let total_len: usize = parts.iter().map(|s| s.len()).sum();
+    let mut result = String::with_capacity(total_len + parts.len() + 1);
+    for part in parts {
+        result.push('/');
+        result.push_str(part);
+    }
+    result
 }
 
+#[inline(always)]
 fn content_type_for_path(path: &str) -> &'static str {
-    if path.ends_with(".html") || path.ends_with(".htm") {
-        "text/html; charset=utf-8"
-    } else if path.ends_with(".js") {
-        "application/javascript; charset=utf-8"
-    } else if path.ends_with(".css") {
-        "text/css; charset=utf-8"
-    } else if path.ends_with(".json") {
-        "application/json; charset=utf-8"
-    } else if path.ends_with(".svg") {
-        "image/svg+xml"
-    } else if path.ends_with(".png") {
-        "image/png"
-    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
-        "image/jpeg"
-    } else {
-        "text/plain; charset=utf-8"
+    // Optimized: check last few chars to avoid full string scan
+    let bytes = path.as_bytes();
+    let len = bytes.len();
+    
+    if len >= 5 {
+        match &bytes[len-5..] {
+            b".html" => return "text/html; charset=utf-8",
+            b".json" => return "application/json; charset=utf-8",
+            b".jpeg" => return "image/jpeg",
+            _ => {}
+        }
     }
+    
+    if len >= 4 {
+        match &bytes[len-4..] {
+            b".htm" => return "text/html; charset=utf-8",
+            b".css" => return "text/css; charset=utf-8",
+            b".svg" => return "image/svg+xml",
+            b".png" => return "image/png",
+            b".jpg" => return "image/jpeg",
+            _ => {}
+        }
+    }
+    
+    if len >= 3 && &bytes[len-3..] == b".js" {
+        return "application/javascript; charset=utf-8";
+    }
+    
+    "text/plain; charset=utf-8"
 }
 
+#[inline]
 pub(crate) fn status_text(code: u16) -> &'static str {
     match code {
         200 => "OK",
