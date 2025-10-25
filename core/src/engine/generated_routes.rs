@@ -1,7 +1,7 @@
 // GENERATED FILE - DO NOT EDIT
 
 #[allow(non_snake_case)]
-mod module__home_maxerius_Code_framework_test_core_src_engine_______example_main_rs {
+mod module__home_maxerius_Code_framework_test_core_src_engine__________example_main_rs {
     mod __orig {
         //'api'
         // import hashmap
@@ -20,7 +20,7 @@ mod module__home_maxerius_Code_framework_test_core_src_engine_______example_main
 }
 
 #[allow(non_snake_case)]
-mod module__home_maxerius_Code_framework_test_core_src_engine_______example_api_rs {
+mod module__home_maxerius_Code_framework_test_core_src_engine__________example_api_rs {
     mod __orig {
         //'api'
         // Example API route showcasing new DX features
@@ -55,7 +55,7 @@ mod module__home_maxerius_Code_framework_test_core_src_engine_______example_api_
 }
 
 #[allow(non_snake_case)]
-mod module__home_maxerius_Code_framework_test_core_src_engine_______example_users__id__rs {
+mod module__home_maxerius_Code_framework_test_core_src_engine__________example_users__id__rs {
     mod __orig {
         //'api'
         // Dynamic route example: /users/:id
@@ -97,7 +97,7 @@ mod module__home_maxerius_Code_framework_test_core_src_engine_______example_user
 }
 
 #[allow(non_snake_case)]
-mod module__home_maxerius_Code_framework_test_core_src_engine_______example_posts__id__comments__commentId__rs {
+mod module__home_maxerius_Code_framework_test_core_src_engine__________example_posts__id__comments__commentId__rs {
     mod __orig {
         //'api'
         // Dynamic route with multiple params: /posts/:id/comments/:commentId
@@ -139,6 +139,28 @@ mod module__home_maxerius_Code_framework_test_core_src_engine_______example_post
     }
 }
 
+#[allow(non_snake_case)]
+mod module__home_maxerius_Code_framework_test_core_src_engine__________example_search_rs {
+    mod __orig {
+        //'api'
+        // Example demonstrating query string parsing
+        use std::collections::HashMap;
+        
+        pub fn GET(params: &HashMap<String, String>) -> (String, u16) {
+            // In a real implementation, you'd parse from the actual request
+            // For now, demonstrate the concept
+            let response = r#"{"message": "Search endpoint", "tip": "Use ?q=search&limit=10"}"#;
+            (response.to_string(), 200)
+        }
+    }
+    // wrapper for GET that adapts (String,u16) -> Response
+    #[inline(always)]
+    pub fn GET(params: &std::collections::HashMap<String, String>) -> super::Response {
+        let (s, status) = __orig::GET(params);
+        super::Response { status, body: s.into_bytes().into(), content_type: "text/plain; charset=utf-8", headers: Vec::new() }
+    }
+}
+
 use std::option::Option;
 
 pub type Handler = fn(&std::collections::HashMap<String, String>) -> super::Response;
@@ -171,21 +193,21 @@ pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collectio
     if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 1 {
         if segments[0] != "main" { /* skip */ } else
         {
-            return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_main_rs::GET, std::collections::HashMap::new()));
+            return Some((module__home_maxerius_Code_framework_test_core_src_engine__________example_main_rs::GET, std::collections::HashMap::new()));
         }
     }
     // Match pattern: GET /api
     if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 1 {
         if segments[0] != "api" { /* skip */ } else
         {
-            return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_api_rs::GET, std::collections::HashMap::new()));
+            return Some((module__home_maxerius_Code_framework_test_core_src_engine__________example_api_rs::GET, std::collections::HashMap::new()));
         }
     }
     // Match pattern: POST /api
     if method_bytes.len() == 4 && method_bytes == b"POST" && seg_count == 1 {
         if segments[0] != "api" { /* skip */ } else
         {
-            return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_api_rs::POST, std::collections::HashMap::new()));
+            return Some((module__home_maxerius_Code_framework_test_core_src_engine__________example_api_rs::POST, std::collections::HashMap::new()));
         }
     }
     // Match pattern: GET /users/[id]
@@ -194,7 +216,7 @@ pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collectio
         {
             let mut params = std::collections::HashMap::with_capacity(1);
             params.insert("id".to_string(), segments[1].to_string());
-            return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_users__id__rs::GET, params));
+            return Some((module__home_maxerius_Code_framework_test_core_src_engine__________example_users__id__rs::GET, params));
         }
     }
     // Match pattern: DELETE /users/[id]
@@ -203,7 +225,7 @@ pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collectio
         {
             let mut params = std::collections::HashMap::with_capacity(1);
             params.insert("id".to_string(), segments[1].to_string());
-            return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_users__id__rs::DELETE, params));
+            return Some((module__home_maxerius_Code_framework_test_core_src_engine__________example_users__id__rs::DELETE, params));
         }
     }
     // Match pattern: GET /posts/[id]/comments/[commentId]
@@ -214,7 +236,7 @@ pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collectio
             let mut params = std::collections::HashMap::with_capacity(2);
             params.insert("id".to_string(), segments[1].to_string());
             params.insert("commentId".to_string(), segments[3].to_string());
-            return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_posts__id__comments__commentId__rs::GET, params));
+            return Some((module__home_maxerius_Code_framework_test_core_src_engine__________example_posts__id__comments__commentId__rs::GET, params));
         }
     }
     // Match pattern: DELETE /posts/[id]/comments/[commentId]
@@ -225,7 +247,14 @@ pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collectio
             let mut params = std::collections::HashMap::with_capacity(2);
             params.insert("id".to_string(), segments[1].to_string());
             params.insert("commentId".to_string(), segments[3].to_string());
-            return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_posts__id__comments__commentId__rs::DELETE, params));
+            return Some((module__home_maxerius_Code_framework_test_core_src_engine__________example_posts__id__comments__commentId__rs::DELETE, params));
+        }
+    }
+    // Match pattern: GET /search
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 1 {
+        if segments[0] != "search" { /* skip */ } else
+        {
+            return Some((module__home_maxerius_Code_framework_test_core_src_engine__________example_search_rs::GET, std::collections::HashMap::new()));
         }
     }
     None

@@ -18,3 +18,6 @@ pub use hot_reload::HotReloader;
 
 pub mod errors;
 pub use errors::{FrameworkError, Result};
+
+pub mod middleware;
+pub use middleware::{ResponseCompressor, QueryParser, CorsMiddleware, RateLimiter};
