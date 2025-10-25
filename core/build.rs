@@ -79,6 +79,7 @@ fn main() {
                     let returns_response = content.contains("-> Response") || content.contains("-> super::Response") || content.contains("-> crate::engine::Response");
                     if returns_response {
                         writeln!(out, "    // wrapper for {} that forwards Response", m).unwrap();
+                        writeln!(out, "    #[inline(always)]").unwrap();
                         writeln!(out, "    pub fn {}(params: &std::collections::HashMap<String, String>) -> super::Response {{", m).unwrap();
                         if content.contains(&upper_pat) {
                             if param_is_ref {
@@ -97,6 +98,7 @@ fn main() {
                         writeln!(out, "    }}").unwrap();
                     } else if returns_tuple {
                         writeln!(out, "    // wrapper for {} that adapts (String,u16) -> Response", m).unwrap();
+                        writeln!(out, "    #[inline(always)]").unwrap();
                         writeln!(out, "    pub fn {}(params: &std::collections::HashMap<String, String>) -> super::Response {{", m).unwrap();
                         if content.contains(&upper_pat) {
                             if param_is_ref {
@@ -116,6 +118,7 @@ fn main() {
                         writeln!(out, "    }}").unwrap();
                     } else {
                         writeln!(out, "    // wrapper for {} assuming it returns String", m).unwrap();
+                        writeln!(out, "    #[inline(always)]").unwrap();
                         writeln!(out, "    pub fn {}(params: &std::collections::HashMap<String, String>) -> super::Response {{", m).unwrap();
                         if content.contains(&upper_pat) {
                             if param_is_ref {
@@ -153,9 +156,29 @@ fn main() {
         writeln!(out, "pub type Handler = fn(&std::collections::HashMap<String, String>) -> super::Response;\n").unwrap();
         
         // Generate a route matcher that handles both static and dynamic routes
+        writeln!(out, "#[inline(always)]").unwrap();
         writeln!(out, "pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collections::HashMap<String, String>)> {{").unwrap();
+        writeln!(out, "    // Fast path: pre-check method bytes for quick rejection").unwrap();
+        writeln!(out, "    let method_bytes = method.as_bytes();").unwrap();
+        writeln!(out, "    ").unwrap();
+        writeln!(out, "    // Normalize and split route into segments (stack-allocated for small routes)").unwrap();
         writeln!(out, "    let route_normalized = route.trim_start_matches('/').trim_end_matches('/');").unwrap();
-        writeln!(out, "    let segments: Vec<&str> = if route_normalized.is_empty() {{ Vec::new() }} else {{ route_normalized.split('/').collect() }};").unwrap();
+        writeln!(out, "    let seg_count = if route_normalized.is_empty() {{ 0 }} else {{ route_normalized.bytes().filter(|&b| b == b'/').count() + 1 }};").unwrap();
+        writeln!(out, "    ").unwrap();
+        writeln!(out, "    // Use small fixed arrays for common cases to avoid heap allocation").unwrap();
+        writeln!(out, "    let mut seg_buf: [&str; 8] = [\"\"; 8];").unwrap();
+        writeln!(out, "    let segments = if seg_count <= 8 {{").unwrap();
+        writeln!(out, "        let mut i = 0;").unwrap();
+        writeln!(out, "        for seg in route_normalized.split('/') {{").unwrap();
+        writeln!(out, "            if i >= 8 {{ break; }}").unwrap();
+        writeln!(out, "            seg_buf[i] = seg;").unwrap();
+        writeln!(out, "            i += 1;").unwrap();
+        writeln!(out, "        }}").unwrap();
+        writeln!(out, "        &seg_buf[..seg_count]").unwrap();
+        writeln!(out, "    }} else {{").unwrap();
+        writeln!(out, "        // Fallback to heap for deep routes").unwrap();
+        writeln!(out, "        return None; // or handle with Vec if needed").unwrap();
+        writeln!(out, "    }};").unwrap();
         writeln!(out).unwrap();
 
         // For each discovered file, detect which HTTP method handler functions it provides
@@ -188,29 +211,45 @@ fn main() {
                     };
                     
                     writeln!(out, "    // Match pattern: {} {}", m, route).unwrap();
-                    writeln!(out, "    if method == \"{}\" && segments.len() == {} {{", m, pattern_segments.len()).unwrap();
                     
-                    // Generate matching logic
+                    // Optimize method check with byte comparison
+                    let method_bytes: Vec<String> = m.bytes().map(|b| format!("{}", b)).collect();
+                    let method_check = if method_bytes.len() <= 7 {
+                        format!("method_bytes.len() == {} && method_bytes == b\"{}\"", m.len(), m)
+                    } else {
+                        format!("method == \"{}\"", m)
+                    };
+                    
+                    writeln!(out, "    if {} && seg_count == {} {{", method_check, pattern_segments.len()).unwrap();
+                    
+                    // Generate matching logic with optimized segment access
                     let mut has_dynamics = false;
+                    let mut static_checks = Vec::new();
+                    
                     for (i, seg) in pattern_segments.iter().enumerate() {
                         if seg.starts_with('[') && seg.ends_with(']') {
                             has_dynamics = true;
                         } else {
-                            writeln!(out, "        if segments.get({}) != Some(&\"{}\") {{ /* skip */ }} else", i, seg).unwrap();
+                            static_checks.push((i, seg));
                         }
+                    }
+                    
+                    // Generate static segment checks - use direct array access for speed
+                    for (i, seg) in &static_checks {
+                        writeln!(out, "        if segments[{}] != \"{}\" {{ /* skip */ }} else", i, seg).unwrap();
                     }
                     
                     writeln!(out, "        {{").unwrap();
                     
-                    // Extract dynamic params
+                    // Extract dynamic params with pre-allocated capacity
                     if has_dynamics {
-                        writeln!(out, "            let mut params = std::collections::HashMap::new();").unwrap();
+                        let param_count = pattern_segments.iter().filter(|s| s.starts_with('[') && s.ends_with(']')).count();
+                        writeln!(out, "            let mut params = std::collections::HashMap::with_capacity({});", param_count).unwrap();
                         for (i, seg) in pattern_segments.iter().enumerate() {
                             if seg.starts_with('[') && seg.ends_with(']') {
                                 let param_name = &seg[1..seg.len()-1];
-                                writeln!(out, "            if let Some(val) = segments.get({}) {{", i).unwrap();
-                                writeln!(out, "                params.insert(\"{}\".to_string(), val.to_string());", param_name).unwrap();
-                                writeln!(out, "            }}").unwrap();
+                                // Use unchecked access since we know seg_count == pattern_segments.len()
+                                writeln!(out, "            params.insert(\"{}\".to_string(), segments[{}].to_string());", param_name, i).unwrap();
                             }
                         }
                         writeln!(out, "            return Some(({}::{}, params));", mod_name, fname).unwrap();

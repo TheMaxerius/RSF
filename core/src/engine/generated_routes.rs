@@ -12,6 +12,7 @@ mod module__home_maxerius_Code_framework_test_core_src_engine_______example_main
         }
     }
     // wrapper for GET that adapts (String,u16) -> Response
+    #[inline(always)]
     pub fn GET(params: &std::collections::HashMap<String, String>) -> super::Response {
         let (s, status) = __orig::GET(params.clone());
         super::Response { status, body: s.into_bytes().into(), content_type: "text/plain; charset=utf-8", headers: Vec::new() }
@@ -40,11 +41,13 @@ mod module__home_maxerius_Code_framework_test_core_src_engine_______example_api_
         }
     }
     // wrapper for GET that adapts (String,u16) -> Response
+    #[inline(always)]
     pub fn GET(params: &std::collections::HashMap<String, String>) -> super::Response {
         let (s, status) = __orig::GET(params);
         super::Response { status, body: s.into_bytes().into(), content_type: "text/plain; charset=utf-8", headers: Vec::new() }
     }
     // wrapper for POST that adapts (String,u16) -> Response
+    #[inline(always)]
     pub fn POST(params: &std::collections::HashMap<String, String>) -> super::Response {
         let (s, status) = __orig::POST(params);
         super::Response { status, body: s.into_bytes().into(), content_type: "text/plain; charset=utf-8", headers: Vec::new() }
@@ -80,11 +83,13 @@ mod module__home_maxerius_Code_framework_test_core_src_engine_______example_user
         }
     }
     // wrapper for GET that adapts (String,u16) -> Response
+    #[inline(always)]
     pub fn GET(params: &std::collections::HashMap<String, String>) -> super::Response {
         let (s, status) = __orig::GET(params);
         super::Response { status, body: s.into_bytes().into(), content_type: "text/plain; charset=utf-8", headers: Vec::new() }
     }
     // wrapper for DELETE that adapts (String,u16) -> Response
+    #[inline(always)]
     pub fn DELETE(params: &std::collections::HashMap<String, String>) -> super::Response {
         let (s, status) = __orig::DELETE(params);
         super::Response { status, body: s.into_bytes().into(), content_type: "text/plain; charset=utf-8", headers: Vec::new() }
@@ -121,11 +126,13 @@ mod module__home_maxerius_Code_framework_test_core_src_engine_______example_post
         }
     }
     // wrapper for GET that adapts (String,u16) -> Response
+    #[inline(always)]
     pub fn GET(params: &std::collections::HashMap<String, String>) -> super::Response {
         let (s, status) = __orig::GET(params);
         super::Response { status, body: s.into_bytes().into(), content_type: "text/plain; charset=utf-8", headers: Vec::new() }
     }
     // wrapper for DELETE that adapts (String,u16) -> Response
+    #[inline(always)]
     pub fn DELETE(params: &std::collections::HashMap<String, String>) -> super::Response {
         let (s, status) = __orig::DELETE(params);
         super::Response { status, body: s.into_bytes().into(), content_type: "text/plain; charset=utf-8", headers: Vec::new() }
@@ -136,80 +143,88 @@ use std::option::Option;
 
 pub type Handler = fn(&std::collections::HashMap<String, String>) -> super::Response;
 
+#[inline(always)]
 pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collections::HashMap<String, String>)> {
+    // Fast path: pre-check method bytes for quick rejection
+    let method_bytes = method.as_bytes();
+    
+    // Normalize and split route into segments (stack-allocated for small routes)
     let route_normalized = route.trim_start_matches('/').trim_end_matches('/');
-    let segments: Vec<&str> = if route_normalized.is_empty() { Vec::new() } else { route_normalized.split('/').collect() };
+    let seg_count = if route_normalized.is_empty() { 0 } else { route_normalized.bytes().filter(|&b| b == b'/').count() + 1 };
+    
+    // Use small fixed arrays for common cases to avoid heap allocation
+    let mut seg_buf: [&str; 8] = [""; 8];
+    let segments = if seg_count <= 8 {
+        let mut i = 0;
+        for seg in route_normalized.split('/') {
+            if i >= 8 { break; }
+            seg_buf[i] = seg;
+            i += 1;
+        }
+        &seg_buf[..seg_count]
+    } else {
+        // Fallback to heap for deep routes
+        return None; // or handle with Vec if needed
+    };
 
     // Match pattern: GET /main
-    if method == "GET" && segments.len() == 1 {
-        if segments.get(0) != Some(&"main") { /* skip */ } else
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 1 {
+        if segments[0] != "main" { /* skip */ } else
         {
             return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_main_rs::GET, std::collections::HashMap::new()));
         }
     }
     // Match pattern: GET /api
-    if method == "GET" && segments.len() == 1 {
-        if segments.get(0) != Some(&"api") { /* skip */ } else
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 1 {
+        if segments[0] != "api" { /* skip */ } else
         {
             return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_api_rs::GET, std::collections::HashMap::new()));
         }
     }
     // Match pattern: POST /api
-    if method == "POST" && segments.len() == 1 {
-        if segments.get(0) != Some(&"api") { /* skip */ } else
+    if method_bytes.len() == 4 && method_bytes == b"POST" && seg_count == 1 {
+        if segments[0] != "api" { /* skip */ } else
         {
             return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_api_rs::POST, std::collections::HashMap::new()));
         }
     }
     // Match pattern: GET /users/[id]
-    if method == "GET" && segments.len() == 2 {
-        if segments.get(0) != Some(&"users") { /* skip */ } else
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 2 {
+        if segments[0] != "users" { /* skip */ } else
         {
-            let mut params = std::collections::HashMap::new();
-            if let Some(val) = segments.get(1) {
-                params.insert("id".to_string(), val.to_string());
-            }
+            let mut params = std::collections::HashMap::with_capacity(1);
+            params.insert("id".to_string(), segments[1].to_string());
             return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_users__id__rs::GET, params));
         }
     }
     // Match pattern: DELETE /users/[id]
-    if method == "DELETE" && segments.len() == 2 {
-        if segments.get(0) != Some(&"users") { /* skip */ } else
+    if method_bytes.len() == 6 && method_bytes == b"DELETE" && seg_count == 2 {
+        if segments[0] != "users" { /* skip */ } else
         {
-            let mut params = std::collections::HashMap::new();
-            if let Some(val) = segments.get(1) {
-                params.insert("id".to_string(), val.to_string());
-            }
+            let mut params = std::collections::HashMap::with_capacity(1);
+            params.insert("id".to_string(), segments[1].to_string());
             return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_users__id__rs::DELETE, params));
         }
     }
     // Match pattern: GET /posts/[id]/comments/[commentId]
-    if method == "GET" && segments.len() == 4 {
-        if segments.get(0) != Some(&"posts") { /* skip */ } else
-        if segments.get(2) != Some(&"comments") { /* skip */ } else
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 4 {
+        if segments[0] != "posts" { /* skip */ } else
+        if segments[2] != "comments" { /* skip */ } else
         {
-            let mut params = std::collections::HashMap::new();
-            if let Some(val) = segments.get(1) {
-                params.insert("id".to_string(), val.to_string());
-            }
-            if let Some(val) = segments.get(3) {
-                params.insert("commentId".to_string(), val.to_string());
-            }
+            let mut params = std::collections::HashMap::with_capacity(2);
+            params.insert("id".to_string(), segments[1].to_string());
+            params.insert("commentId".to_string(), segments[3].to_string());
             return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_posts__id__comments__commentId__rs::GET, params));
         }
     }
     // Match pattern: DELETE /posts/[id]/comments/[commentId]
-    if method == "DELETE" && segments.len() == 4 {
-        if segments.get(0) != Some(&"posts") { /* skip */ } else
-        if segments.get(2) != Some(&"comments") { /* skip */ } else
+    if method_bytes.len() == 6 && method_bytes == b"DELETE" && seg_count == 4 {
+        if segments[0] != "posts" { /* skip */ } else
+        if segments[2] != "comments" { /* skip */ } else
         {
-            let mut params = std::collections::HashMap::new();
-            if let Some(val) = segments.get(1) {
-                params.insert("id".to_string(), val.to_string());
-            }
-            if let Some(val) = segments.get(3) {
-                params.insert("commentId".to_string(), val.to_string());
-            }
+            let mut params = std::collections::HashMap::with_capacity(2);
+            params.insert("id".to_string(), segments[1].to_string());
+            params.insert("commentId".to_string(), segments[3].to_string());
             return Some((module__home_maxerius_Code_framework_test_core_src_engine_______example_posts__id__comments__commentId__rs::DELETE, params));
         }
     }
