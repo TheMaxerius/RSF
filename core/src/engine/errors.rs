@@ -41,3 +41,15 @@ impl FrameworkError {
 }
 
 pub type Result<T> = std::result::Result<T, FrameworkError>;
+
+/// Convert error to Response
+impl FrameworkError {
+    pub fn to_response(&self) -> super::Response {
+        super::Response {
+            status: self.status_code(),
+            body: self.to_json().into_bytes().into(),
+            content_type: "application/json",
+            headers: vec![],
+        }
+    }
+}
