@@ -1,4 +1,4 @@
-// WebSocket chat example
+// 'api'
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use crate::engine::{Response, WsMessage, WsRoom};

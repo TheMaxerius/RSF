@@ -595,7 +595,7 @@ mod module__home_runner_workspace_core_src_engine__________example_index_rs {
 #[allow(non_snake_case)]
 mod module__home_runner_workspace_core_src_engine__________example_ws_chat_rs {
     mod __orig {
-        // WebSocket chat example
+        // 'api'
         use std::collections::HashMap;
         use std::sync::atomic::{AtomicU64, Ordering};
         use crate::engine::{Response, WsMessage, WsRoom};
@@ -820,7 +820,7 @@ mod module__home_runner_workspace_core_src_engine__________example_middleware_de
 #[allow(non_snake_case)]
 mod module__home_runner_workspace_core_src_engine__________example_ws_demo_rs {
     mod __orig {
-        // Simple WebSocket echo example
+        // 'api'
         use std::collections::HashMap;
         use crate::engine::Response;
         use bytes::Bytes;

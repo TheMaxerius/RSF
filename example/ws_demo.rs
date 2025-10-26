@@ -1,4 +1,4 @@
-// Simple WebSocket echo example
+// 'api'
 use std::collections::HashMap;
 use crate::engine::Response;
 use bytes::Bytes;
