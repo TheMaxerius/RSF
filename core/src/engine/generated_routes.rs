@@ -592,6 +592,274 @@ mod module__home_runner_workspace_core_src_engine__________example_index_rs {
     }
 }
 
+#[allow(non_snake_case)]
+mod module__home_runner_workspace_core_src_engine__________example_ws_chat_rs {
+    mod __orig {
+        // WebSocket chat example
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use crate::engine::{Response, WsMessage, WsRoom};
+        use bytes::Bytes;
+        use once_cell::sync::Lazy;
+        
+        // Global chat room shared across all connections
+        static CHAT_ROOM: Lazy<WsRoom> = Lazy::new(|| WsRoom::new());
+        static USER_COUNTER: AtomicU64 = AtomicU64::new(0);
+        
+        /// GET /ws/chat - WebSocket chat information
+        /// To connect via WebSocket, use a WebSocket client library
+        /// Example: ws://localhost:5000/ws/chat
+        pub async fn GET(_params: &HashMap<String, String>) -> Response {
+            Response::json(&serde_json::json!({
+                "info": "WebSocket Chat Room",
+                "active_users": CHAT_ROOM.count(),
+                "connection_url": "ws://localhost:5000/ws/chat",
+                "usage": "Use a WebSocket client to connect. Send text messages to chat with other users.",
+                "example": "websocat ws://localhost:5000/ws/chat"
+            }), 200)
+        }
+        
+        pub(crate) async fn handle_chat_connection(
+            ws_connection: crate::engine::WebSocketConnection,
+            user_id: String,
+        ) -> Result<(), String> {
+            // This is a placeholder - full WebSocket chat implementation requires
+            // server modifications to support WebSocket upgrades in routing
+            ws_connection.handle(|mut ws| async move {
+                // Send welcome message
+                ws.send(format!("Welcome to the chat! Your ID: {}", user_id)).await?;
+                ws.send(format!("Active users: {}", CHAT_ROOM.count() + 1)).await?;
+            
+            // Create a channel for broadcasting
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            CHAT_ROOM.join(user_id.clone(), tx);
+            
+            // Broadcast join message
+            CHAT_ROOM.broadcast(format!("🟢 {} joined the chat", user_id));
+            
+            // Split socket into sender and receiver
+            let (mut sender, mut receiver) = ws.split();
+            
+            // Spawn task to handle outgoing messages (broadcasts from other users)
+            let send_user_id = user_id.clone();
+            let send_task = tokio::spawn(async move {
+                while let Some(msg) = rx.recv().await {
+                    if sender.send(msg).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            
+            // Handle incoming messages from this user
+            while let Ok(Some(msg)) = receiver.receive().await {
+                match msg {
+                    WsMessage::Text(text) => {
+                        log::info!("[Chat] {}: {}", user_id, text);
+                        
+                        // Broadcast to all other users
+                        CHAT_ROOM.broadcast(format!("{}: {}", user_id, text));
+                    }
+                    WsMessage::Close => {
+                        log::info!("[Chat] {} disconnected", user_id);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            
+                // Clean up
+                CHAT_ROOM.leave(&user_id);
+                CHAT_ROOM.broadcast(format!("🔴 {} left the chat", user_id));
+                send_task.abort();
+                
+                Ok(())
+            }).await
+        }
+    }
+    // async wrapper for GET that forwards Response
+    #[inline(always)]
+    pub fn GET(params: &std::collections::HashMap<String, String>, body: &bytes::Bytes) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::Response> + Send>> {
+        let params = params.clone();
+        let body = body.clone();
+        Box::pin(async move {
+            __orig::GET(&params).await
+        })
+    }
+}
+
+#[allow(non_snake_case)]
+mod module__home_runner_workspace_core_src_engine__________example_middleware_demo_rs {
+    mod __orig {
+        // 'api' with middleware
+        use std::collections::HashMap;
+        use crate::engine::{Response, MiddlewareContext, MiddlewareResult, MiddlewareChain, AfterMiddlewareChain};
+        use bytes::Bytes;
+        use once_cell::sync::Lazy;
+        
+        // Define custom middleware chains for this route
+        static BEFORE_MIDDLEWARE: Lazy<MiddlewareChain> = Lazy::new(|| {
+            MiddlewareChain::new()
+                // Add logging middleware
+                .add(|ctx| async move {
+                    log::info!("🔵 [Middleware] Before: {} {}", ctx.method, ctx.path);
+                    MiddlewareResult::Continue(ctx)
+                })
+                // Add timing middleware
+                .add(|mut ctx| async move {
+                    use std::time::Instant;
+                    let start = Instant::now();
+                    ctx.set("start_time".to_string(), format!("{:?}", start));
+                    MiddlewareResult::Continue(ctx)
+                })
+                // Add custom validation middleware
+                .add(|ctx| async move {
+                    // Example: Check for a custom header
+                    if let Some(api_key) = ctx.header("x-api-key") {
+                        if api_key == "demo-key-12345" {
+                            log::info!("✅ [Middleware] API key validated");
+                            return MiddlewareResult::Continue(ctx);
+                        }
+                    }
+                    
+                    // For demo purposes, we'll allow requests without key
+                    // but log a warning
+                    log::warn!("⚠️  [Middleware] No valid API key provided");
+                    MiddlewareResult::Continue(ctx)
+                })
+        });
+        
+        static AFTER_MIDDLEWARE: Lazy<AfterMiddlewareChain> = Lazy::new(|| {
+            AfterMiddlewareChain::new()
+                // Add CORS headers
+                .add(|_ctx, mut resp| async move {
+                    resp.headers.push(("Access-Control-Allow-Origin".to_string(), "*".to_string()));
+                    resp.headers.push(("X-Powered-By".to_string(), "Rust Framework".to_string()));
+                    resp
+                })
+                // Add timing header
+                .add(|ctx, mut resp| async move {
+                    if let Some(start_str) = ctx.get("start_time") {
+                        resp.headers.push(("X-Custom-Timing".to_string(), "tracked".to_string()));
+                    }
+                    log::info!("🟢 [Middleware] After: Status {}", resp.status);
+                    resp
+                })
+        });
+        
+        /// GET /middleware-demo - Route with custom middleware
+        pub async fn GET(params: &HashMap<String, String>) -> Response {
+            // Create middleware context
+            let mut ctx = MiddlewareContext::new("GET".to_string(), "/middleware-demo".to_string());
+            
+            // In a real implementation, you'd populate headers from the request
+            ctx.headers.insert("x-api-key".to_string(), "demo-key-12345".to_string());
+            
+            // Execute before middleware chain
+            let ctx = match BEFORE_MIDDLEWARE.execute(ctx).await {
+                MiddlewareResult::Continue(ctx) => ctx,
+                MiddlewareResult::Response(resp) => return resp,
+            };
+            
+            // Handler logic
+            let response = Response::json(&serde_json::json!({
+                "message": "Hello from middleware demo!",
+                "middleware_executed": true,
+                "context_extensions": ctx.extensions.len(),
+                "info": "Check the response headers to see middleware additions"
+            }), 200);
+            
+            // Execute after middleware chain
+            AFTER_MIDDLEWARE.execute(ctx, response).await
+        }
+        
+        /// POST /middleware-demo - Example with body parsing
+        pub async fn POST(params: &HashMap<String, String>, body: &Bytes) -> Response {
+            // Create middleware context
+            let ctx = MiddlewareContext::new("POST".to_string(), "/middleware-demo".to_string());
+            
+            // Execute before middleware
+            let ctx = match BEFORE_MIDDLEWARE.execute(ctx).await {
+                MiddlewareResult::Continue(ctx) => ctx,
+                MiddlewareResult::Response(resp) => return resp,
+            };
+            
+            // Parse body
+            let body_str = String::from_utf8_lossy(body);
+            
+            // Handler logic
+            let response = Response::json(&serde_json::json!({
+                "message": "POST request processed with middleware",
+                "body_length": body.len(),
+                "body_preview": &body_str[..body_str.len().min(100)]
+            }), 200);
+            
+            // Execute after middleware
+            AFTER_MIDDLEWARE.execute(ctx, response).await
+        }
+    }
+    // async wrapper for GET that forwards Response
+    #[inline(always)]
+    pub fn GET(params: &std::collections::HashMap<String, String>, body: &bytes::Bytes) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::Response> + Send>> {
+        let params = params.clone();
+        let body = body.clone();
+        Box::pin(async move {
+            __orig::GET(&params).await
+        })
+    }
+    // async wrapper for POST that forwards Response
+    #[inline(always)]
+    pub fn POST(params: &std::collections::HashMap<String, String>, body: &bytes::Bytes) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::Response> + Send>> {
+        let params = params.clone();
+        let body = body.clone();
+        Box::pin(async move {
+            __orig::POST(&params, &body).await
+        })
+    }
+}
+
+#[allow(non_snake_case)]
+mod module__home_runner_workspace_core_src_engine__________example_ws_demo_rs {
+    mod __orig {
+        // Simple WebSocket echo example
+        use std::collections::HashMap;
+        use crate::engine::Response;
+        use bytes::Bytes;
+        
+        /// GET /ws-demo - WebSocket demo information
+        pub async fn GET(_params: &HashMap<String, String>) -> Response {
+            Response::json(&serde_json::json!({
+                "info": "WebSocket support is available in this framework!",
+                "features": [
+                    "Real-time bidirectional communication",
+                    "Built on hyper-tungsten for performance",
+                    "Support for rooms and broadcasting",
+                    "Clean async API"
+                ],
+                "example_endpoints": [
+                    "/ws/chat - Multi-user chat room (coming soon)",
+                    "/ws-demo - This information page"
+                ],
+                "how_to_use": {
+                    "step_1": "Create a route file in example/ws/",
+                    "step_2": "Import: use crate::engine::{is_websocket_upgrade, upgrade_websocket, WsMessage};",
+                    "step_3": "Check for upgrade request and handle WebSocket connection",
+                    "step_4": "Use ws.send() and ws.receive() for messaging"
+                },
+                "code_example": "See example/ws/chat.rs for a complete implementation"
+            }), 200)
+        }
+    }
+    // async wrapper for GET that forwards Response
+    #[inline(always)]
+    pub fn GET(params: &std::collections::HashMap<String, String>, body: &bytes::Bytes) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::Response> + Send>> {
+        let params = params.clone();
+        let body = body.clone();
+        Box::pin(async move {
+            __orig::GET(&params).await
+        })
+    }
+}
+
 use std::option::Option;
 use std::pin::Pin;
 use std::future::Future;
@@ -674,6 +942,35 @@ pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collectio
     if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 0 {
         {
             return Some((module__home_runner_workspace_core_src_engine__________example_index_rs::GET, std::collections::HashMap::new()));
+        }
+    }
+    // Match pattern: GET /ws/chat
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 2 {
+        if segments[0] != "ws" { /* skip */ } else
+        if segments[1] != "chat" { /* skip */ } else
+        {
+            return Some((module__home_runner_workspace_core_src_engine__________example_ws_chat_rs::GET, std::collections::HashMap::new()));
+        }
+    }
+    // Match pattern: GET /middleware_demo
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 1 {
+        if segments[0] != "middleware_demo" { /* skip */ } else
+        {
+            return Some((module__home_runner_workspace_core_src_engine__________example_middleware_demo_rs::GET, std::collections::HashMap::new()));
+        }
+    }
+    // Match pattern: POST /middleware_demo
+    if method_bytes.len() == 4 && method_bytes == b"POST" && seg_count == 1 {
+        if segments[0] != "middleware_demo" { /* skip */ } else
+        {
+            return Some((module__home_runner_workspace_core_src_engine__________example_middleware_demo_rs::POST, std::collections::HashMap::new()));
+        }
+    }
+    // Match pattern: GET /ws_demo
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 1 {
+        if segments[0] != "ws_demo" { /* skip */ } else
+        {
+            return Some((module__home_runner_workspace_core_src_engine__________example_ws_demo_rs::GET, std::collections::HashMap::new()));
         }
     }
     None

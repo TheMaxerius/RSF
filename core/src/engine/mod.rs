@@ -33,8 +33,14 @@ pub use auth::{Session, SessionStore, JwtAuth, BasicAuth};
 pub mod static_files;
 pub use static_files::{StaticFileServer, StaticFile};
 
-pub mod websocket;
-pub use websocket::{WebSocket, WsMessage, WsRoom, WsHandler};
+// Modern WebSocket support with hyper-tungstenite
+pub mod ws;
+pub use ws::{WebSocketConnection, WebSocket, WsMessage, WsRoom, is_websocket_upgrade, upgrade_websocket, WsSender, WsReceiver};
+
+// User-friendly middleware system
+pub mod mw;
+pub use mw::{MiddlewareContext, MiddlewareResult, MiddlewareChain, AfterMiddlewareChain};
+pub use mw::{logging_middleware, cors_middleware, timing_middleware, auth_middleware};
 
 pub mod config;
 pub use config::Config;
