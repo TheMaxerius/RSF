@@ -19,6 +19,7 @@ Preferred communication style: Simple, everyday language.
 **Request Processing Pipeline**
 - Async handler system using `Pin<Box<dyn Future>>` for concurrent request handling
 - Type-safe extractors for parsing request bodies: `Json<T>`, `Form`, `Text`, `RawBody`
+- DX improvements: `extract_param<T>` helper for one-line parameter parsing, `AppError` type for Result-based error handling
 - Built-in URL decoding
 - Support for all standard HTTP methods (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD)
 - WebSocket support with hyper-tungstenite for real-time bidirectional communication
