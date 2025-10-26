@@ -11,6 +11,7 @@ This framework includes built-in WebSocket support powered by `hyper-tungstenite
 Create a route file that handles WebSocket upgrades:
 
 ```rust
+// 'api'
 use std::collections::HashMap;
 use crate::engine::{Response, is_websocket_upgrade, upgrade_websocket, WsMessage};
 use hyper::{Request, Body};

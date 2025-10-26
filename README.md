@@ -1,6 +1,22 @@
 # ⚡ Rust Web Framework - Ultra-Fast File-Based Routing
 
-A blazingly fast, zero-overhead web framework for Rust with Next.js-style file-based routing, async handlers, and sub-3MB binaries.
+A blazingly fast, zero-overhead web framework for Rust with Next.js-style file-based routing, async handlers, WebSocket support, middleware system, and sub-3MB binaries.
+
+---
+
+## 📋 Table of Contents
+
+- [Features](#-features)
+- [Quick Start](#-quick-start)
+- [Blog API Demo](#-blog-api-demo)
+- [WebSocket Support](#-websocket-support)
+- [Middleware System](#-middleware-system)
+- [How It Works](#-how-it-works)
+- [Performance](#-performance)
+- [Architecture](#-architecture)
+- [Response API](#-response-api)
+
+---
 
 ## 🚀 Features
 
@@ -220,6 +236,203 @@ curl -X DELETE http://localhost:5000/posts/1
 curl http://localhost:5000/stats
 ```
 
+## 🔌 WebSocket Support
+
+The framework includes built-in WebSocket support for real-time bidirectional communication.
+
+### Basic WebSocket Handler
+
+Create `example/ws/echo.rs`:
+
+```rust
+// 'api'
+use std::collections::HashMap;
+use crate::engine::{Response, is_websocket_upgrade, upgrade_websocket, WsMessage};
+use hyper::{Request, Body};
+
+pub async fn GET(_params: &HashMap<String, String>, req: &mut Request<Body>) -> Response {
+    if !is_websocket_upgrade(req) {
+        return Response::json(&serde_json::json!({
+            "error": "WebSocket upgrade required"
+        }), 400);
+    }
+    
+    let (response, ws_connection) = match upgrade_websocket(req) {
+        Ok(result) => result,
+        Err(e) => return Response::json(&serde_json::json!({"error": e}), 500),
+    };
+    
+    tokio::spawn(async move {
+        ws_connection.handle(|mut ws| async move {
+            ws.send("Connected!").await?;
+            
+            while let Ok(Some(msg)) = ws.receive().await {
+                match msg {
+                    WsMessage::Text(text) => {
+                        ws.send(format!("Echo: {}", text)).await?;
+                    }
+                    WsMessage::Close => break,
+                    _ => {}
+                }
+            }
+            Ok(())
+        }).await
+    });
+    
+    Response {
+        body: hyper::body::to_bytes(response.into_body()).await.unwrap_or_default(),
+        status: response.status().as_u16(),
+        content_type: "text/plain",
+        headers: vec![],
+    }
+}
+```
+
+### WebSocket with Broadcasting (Chat Room)
+
+```rust
+// 'api'
+use once_cell::sync::Lazy;
+use crate::engine::WsRoom;
+
+static CHAT_ROOM: Lazy<WsRoom> = Lazy::new(|| WsRoom::new());
+
+async fn handle_chat(ws_connection: WebSocketConnection, user_id: String) -> Result<(), String> {
+    ws_connection.handle(|ws| async move {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        CHAT_ROOM.join(user_id.clone(), tx);
+        
+        CHAT_ROOM.broadcast(format!("{} joined", user_id));
+        
+        let (mut sender, mut receiver) = ws.split();
+        
+        // Send broadcasts to this user
+        tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if sender.send(msg).await.is_err() { break; }
+            }
+        });
+        
+        // Receive messages from this user
+        while let Ok(Some(msg)) = receiver.receive().await {
+            if let WsMessage::Text(text) = msg {
+                CHAT_ROOM.broadcast(format!("{}: {}", user_id, text));
+            }
+        }
+        
+        CHAT_ROOM.leave(&user_id);
+        Ok(())
+    }).await
+}
+```
+
+### Test WebSocket
+
+```bash
+# Using websocat (install: cargo install websocat)
+websocat ws://localhost:5000/ws/echo
+
+# Or test the example endpoints
+curl http://localhost:5000/ws_demo
+curl http://localhost:5000/ws/chat
+```
+
+**📘 See [`WEBSOCKET_GUIDE.md`](WEBSOCKET_GUIDE.md) for complete WebSocket documentation**
+
+## ⚙️ Middleware System
+
+Add custom logic before/after request handling with middleware chains.
+
+### Basic Middleware
+
+```rust
+// 'api'
+use crate::engine::{MiddlewareContext, MiddlewareResult, MiddlewareChain, AfterMiddlewareChain};
+use once_cell::sync::Lazy;
+
+static BEFORE_MIDDLEWARE: Lazy<MiddlewareChain> = Lazy::new(|| {
+    MiddlewareChain::new()
+        .add(|ctx| async move {
+            log::info!("Request: {} {}", ctx.method, ctx.path);
+            MiddlewareResult::Continue(ctx)
+        })
+});
+
+static AFTER_MIDDLEWARE: Lazy<AfterMiddlewareChain> = Lazy::new(|| {
+    AfterMiddlewareChain::new()
+        .add(|_ctx, mut resp| async move {
+            resp.headers.push(("X-Custom-Header".to_string(), "value".to_string()));
+            resp
+        })
+});
+
+pub async fn GET(params: &HashMap<String, String>) -> Response {
+    let ctx = MiddlewareContext::new("GET".to_string(), "/endpoint".to_string());
+    
+    // Execute before middleware
+    let ctx = match BEFORE_MIDDLEWARE.execute(ctx).await {
+        MiddlewareResult::Continue(ctx) => ctx,
+        MiddlewareResult::Response(resp) => return resp,
+    };
+    
+    // Handler logic
+    let response = Response::json(&serde_json::json!({"message": "Hello!"}), 200);
+    
+    // Execute after middleware
+    AFTER_MIDDLEWARE.execute(ctx, response).await
+}
+```
+
+### Common Middleware Examples
+
+**Authentication:**
+```rust
+.add(|ctx| async move {
+    if let Some(auth) = ctx.header("authorization") {
+        if validate_token(auth) {
+            return MiddlewareResult::Continue(ctx);
+        }
+    }
+    MiddlewareResult::Response(Response::json(&serde_json::json!({
+        "error": "Unauthorized"
+    }), 401))
+})
+```
+
+**CORS:**
+```rust
+.add(|_ctx, mut resp| async move {
+    resp.headers.push(("Access-Control-Allow-Origin".to_string(), "*".to_string()));
+    resp
+})
+```
+
+**Timing:**
+```rust
+// Before
+.add(|mut ctx| async move {
+    ctx.set("start_time".to_string(), format!("{:?}", Instant::now()));
+    MiddlewareResult::Continue(ctx)
+})
+
+// After
+.add(|ctx, mut resp| async move {
+    if let Some(_start) = ctx.get("start_time") {
+        resp.headers.push(("X-Response-Time".to_string(), "tracked".to_string()));
+    }
+    resp
+})
+```
+
+### Test Middleware
+
+```bash
+# Test the middleware demo endpoint
+curl http://localhost:5000/middleware_demo
+```
+
+**📘 See [`MIDDLEWARE_GUIDE.md`](MIDDLEWARE_GUIDE.md) for complete middleware documentation**
+
 ## ⚙️ How It Works
 
 ### Compile-Time Route Generation
@@ -342,6 +555,10 @@ pub async fn POST(_params: &HashMap<String, String>, body: &Bytes) -> Response {
 │   ├── index.rs
 │   ├── posts.rs
 │   ├── posts/[id].rs
+│   ├── middleware_demo.rs
+│   ├── ws_demo.rs
+│   └── ws/
+│       └── chat.rs
 │   └── stats.rs
 └── README.md         # This file
 ```
