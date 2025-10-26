@@ -612,17 +612,17 @@ PORT=3000 cargo run
 - [x] Environment configuration
 - [x] jemalloc allocator
 - [x] LTO optimization
+- [x] Rate Limiting
+- [x] Middleware
+- [x] Websocket Support
 
-### Planned 🚧
+### Planned
 
-- [ ] Middleware system (before/after hooks)
-- [ ] WebSocket support enhancements
 - [ ] Database connection pooling
-- [ ] Rate limiting
 - [ ] OpenAPI/Swagger generation
 - [ ] Request/Response compression
 - [ ] Metrics/observability
-- [ ] CLI tooling for scaffolding
+
 
 ## 🤝 Contributing
 
