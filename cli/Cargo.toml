@@ -1,0 +1,16 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dialoguer = "0.11"
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+fs_extra = "1.2"
+anyhow = "1.0"
+include_dir = "0.7"
+dirs = "5.0"
+reqwest = { version = "0.11", features = ["json"] }
+tar = "0.4"
+flate2 = "1.0"
