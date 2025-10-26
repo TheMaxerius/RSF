@@ -1,6 +1,8 @@
 use bytes::Bytes;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
+use std::str::FromStr;
+use std::fmt::Display;
 
 /// Type-safe JSON body extractor
 /// 
@@ -87,5 +89,47 @@ impl Text {
     
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Path parameter extractor with automatic parsing
+/// 
+/// Usage:
+/// ```rust
+/// pub async fn GET(path: Path<UserId>) -> Result<Response, AppError> {
+///     let user_id = path.id;
+///     // No manual parsing needed!
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct Path<T>(pub T);
+
+impl<T> Path<T> {
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+/// Helper to extract a single path parameter by name
+pub fn extract_param<T: FromStr>(params: &HashMap<String, String>, name: &str) -> Result<T, String> 
+where
+    T::Err: Display,
+{
+    params.get(name)
+        .ok_or_else(|| format!("Missing path parameter: {}", name))?
+        .parse::<T>()
+        .map_err(|e| format!("Invalid {} parameter: {}", name, e))
+}
+
+/// Helper to extract an optional path parameter
+pub fn extract_param_optional<T: FromStr>(params: &HashMap<String, String>, name: &str) -> Result<Option<T>, String> 
+where
+    T::Err: Display,
+{
+    match params.get(name) {
+        None => Ok(None),
+        Some(val) => val.parse::<T>()
+            .map(Some)
+            .map_err(|e| format!("Invalid {} parameter: {}", name, e))
     }
 }

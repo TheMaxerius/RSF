@@ -35,7 +35,7 @@ pub use static_files::{StaticFileServer, StaticFile};
 
 // Modern WebSocket support with hyper-tungstenite
 pub mod ws;
-pub use ws::{WebSocketConnection, WebSocket, WsMessage, WsRoom, is_websocket_upgrade, upgrade_websocket, WsSender, WsReceiver};
+pub use ws::{WebSocketConnection, WebSocket, WsMessage, WsRoom, is_websocket_upgrade, upgrade_websocket, handle_websocket, WsSender, WsReceiver};
 
 // User-friendly middleware system
 pub mod mw;
@@ -46,4 +46,10 @@ pub mod config;
 pub use config::Config;
 
 pub mod extractors;
-pub use extractors::{Json, RawBody, Form, Text};
+pub use extractors::{Json, RawBody, Form, Text, Path, extract_param, extract_param_optional};
+
+pub mod error;
+pub use error::AppError;
+
+pub mod helpers;
+pub use helpers::{with_middleware, with_middleware_chain, result_to_response};

@@ -860,6 +860,189 @@ mod module__home_runner_workspace_core_src_engine__________example_ws_demo_rs {
     }
 }
 
+#[allow(non_snake_case)]
+mod module__home_runner_workspace_core_src_engine__________example_improved_dx__id__rs {
+    mod __orig {
+        // 'api'
+        // Example showing improved path parameter extraction
+        
+        use std::collections::HashMap;
+        use crate::engine::{Response, extract_param};
+        use serde::Serialize;
+        
+        #[derive(Serialize)]
+        struct UserDetail {
+            id: usize,
+            name: String,
+            email: String,
+            status: String,
+        }
+        
+        /// GET /improved_dx/:id - Clean path parameter extraction
+        pub async fn GET(params: &HashMap<String, String>) -> Response {
+            // ✨ DX Improvement: One-line parameter extraction with automatic error handling
+            let user_id = match extract_param::<usize>(params, "id") {
+                Ok(id) => id,
+                Err(e) => {
+                    return Response::json(&serde_json::json!({
+                        "error": e
+                    }), 400);
+                }
+            };
+            
+            // Simulate database lookup
+            let user = UserDetail {
+                id: user_id,
+                name: format!("User {}", user_id),
+                email: format!("user{}@example.com", user_id),
+                status: "active".to_string(),
+            };
+            
+            Response::json(&user, 200)
+        }
+        
+        /// DELETE /improved_dx/:id - Example with custom error handling
+        pub async fn DELETE(params: &HashMap<String, String>) -> Response {
+            let user_id = match extract_param::<usize>(params, "id") {
+                Ok(id) => id,
+                Err(e) => {
+                    return Response::json(&serde_json::json!({
+                        "error": format!("Invalid user ID: {}", e)
+                    }), 400);
+                }
+            };
+            
+            // Simulate deletion
+            Response::json(&serde_json::json!({
+                "message": format!("User {} deleted successfully", user_id),
+                "id": user_id
+            }), 200)
+        }
+    }
+    // async wrapper for GET that forwards Response
+    #[inline(always)]
+    pub fn GET(params: &std::collections::HashMap<String, String>, body: &bytes::Bytes) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::Response> + Send>> {
+        let params = params.clone();
+        let body = body.clone();
+        Box::pin(async move {
+            __orig::GET(&params).await
+        })
+    }
+    // async wrapper for DELETE that forwards Response
+    #[inline(always)]
+    pub fn DELETE(params: &std::collections::HashMap<String, String>, body: &bytes::Bytes) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::Response> + Send>> {
+        let params = params.clone();
+        let body = body.clone();
+        Box::pin(async move {
+            __orig::DELETE(&params).await
+        })
+    }
+}
+
+#[allow(non_snake_case)]
+mod module__home_runner_workspace_core_src_engine__________example_improved_dx_rs {
+    mod __orig {
+        // 'api'
+        // Example demonstrating improved developer experience with new helpers
+        
+        use std::collections::HashMap;
+        use crate::engine::{Response, AppError, extract_param, Json};
+        use bytes::Bytes;
+        use serde::{Deserialize, Serialize};
+        
+        #[derive(Deserialize)]
+        struct CreateUser {
+            name: String,
+            email: String,
+        }
+        
+        #[derive(Serialize)]
+        struct User {
+            id: usize,
+            name: String,
+            email: String,
+        }
+        
+        /// GET /improved_dx - Simple demo with clean parameter extraction
+        pub async fn GET(params: &HashMap<String, String>) -> Response {
+            // ✨ DX Improvement: Simple extraction with helpful error messages
+            let user_id = match extract_param::<usize>(params, "id") {
+                Ok(id) => id,
+                Err(_) => {
+                    // Optional parameter - use default
+                    1
+                }
+            };
+            
+            Response::json(&serde_json::json!({
+                "message": "Improved DX Demo",
+                "features": [
+                    "✅ extract_param<T> - Type-safe parameter parsing with one line",
+                    "✅ AppError type - Result-based error handling with ? operator",
+                    "✅ Automatic error messages - No manual error construction",
+                    "✅ Helper functions - Reduced boilerplate for common patterns"
+                ],
+                "examples": {
+                    "parameter_extraction": "let id = extract_param::<usize>(params, \"id\")?;",
+                    "error_handling": "return Err(AppError::bad_request(\"Invalid input\"));",
+                    "json_parsing": "let data = Json::<T>::from_bytes(body).map_err(AppError::from)?;"
+                },
+                "user_id": user_id
+            }), 200)
+        }
+        
+        /// POST /improved_dx - Example with improved error handling
+        pub async fn POST(_params: &HashMap<String, String>, body: &Bytes) -> Response {
+            // ✨ DX Improvement: Automatic error conversion with ?
+            match handle_create_user(body) {
+                Ok(user) => Response::json(&user, 201),
+                Err(err) => err.into_response(),
+            }
+        }
+        
+        // Helper function using Result for cleaner error handling
+        pub(crate) fn handle_create_user(body: &Bytes) -> Result<User, AppError> {
+            // ✨ DX Improvement: Json::from_bytes returns Result, use ? operator
+            let request = Json::<CreateUser>::from_bytes(body)
+                .map_err(|e| AppError::bad_request(format!("Invalid JSON: {}", e)))?;
+            
+            // ✨ DX Improvement: Use helper functions for validation
+            if request.0.name.is_empty() {
+                return Err(AppError::bad_request("Name cannot be empty"));
+            }
+            
+            if !request.0.email.contains('@') {
+                return Err(AppError::bad_request("Invalid email format"));
+            }
+            
+            // Success case
+            Ok(User {
+                id: 123,
+                name: request.0.name,
+                email: request.0.email,
+            })
+        }
+    }
+    // async wrapper for GET that forwards Response
+    #[inline(always)]
+    pub fn GET(params: &std::collections::HashMap<String, String>, body: &bytes::Bytes) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::Response> + Send>> {
+        let params = params.clone();
+        let body = body.clone();
+        Box::pin(async move {
+            __orig::GET(&params).await
+        })
+    }
+    // async wrapper for POST that forwards Response
+    #[inline(always)]
+    pub fn POST(params: &std::collections::HashMap<String, String>, body: &bytes::Bytes) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::Response> + Send>> {
+        let params = params.clone();
+        let body = body.clone();
+        Box::pin(async move {
+            __orig::POST(&params, &body).await
+        })
+    }
+}
+
 use std::option::Option;
 use std::pin::Pin;
 use std::future::Future;
@@ -971,6 +1154,38 @@ pub fn get_handler(route: &str, method: &str) -> Option<(Handler, std::collectio
         if segments[0] != "ws_demo" { /* skip */ } else
         {
             return Some((module__home_runner_workspace_core_src_engine__________example_ws_demo_rs::GET, std::collections::HashMap::new()));
+        }
+    }
+    // Match pattern: GET /improved_dx/[id]
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 2 {
+        if segments[0] != "improved_dx" { /* skip */ } else
+        {
+            let mut params = std::collections::HashMap::with_capacity(1);
+            params.insert("id".to_string(), segments[1].to_string());
+            return Some((module__home_runner_workspace_core_src_engine__________example_improved_dx__id__rs::GET, params));
+        }
+    }
+    // Match pattern: DELETE /improved_dx/[id]
+    if method_bytes.len() == 6 && method_bytes == b"DELETE" && seg_count == 2 {
+        if segments[0] != "improved_dx" { /* skip */ } else
+        {
+            let mut params = std::collections::HashMap::with_capacity(1);
+            params.insert("id".to_string(), segments[1].to_string());
+            return Some((module__home_runner_workspace_core_src_engine__________example_improved_dx__id__rs::DELETE, params));
+        }
+    }
+    // Match pattern: GET /improved_dx
+    if method_bytes.len() == 3 && method_bytes == b"GET" && seg_count == 1 {
+        if segments[0] != "improved_dx" { /* skip */ } else
+        {
+            return Some((module__home_runner_workspace_core_src_engine__________example_improved_dx_rs::GET, std::collections::HashMap::new()));
+        }
+    }
+    // Match pattern: POST /improved_dx
+    if method_bytes.len() == 4 && method_bytes == b"POST" && seg_count == 1 {
+        if segments[0] != "improved_dx" { /* skip */ } else
+        {
+            return Some((module__home_runner_workspace_core_src_engine__________example_improved_dx_rs::POST, std::collections::HashMap::new()));
         }
     }
     None

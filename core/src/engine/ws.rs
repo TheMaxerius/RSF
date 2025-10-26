@@ -160,6 +160,63 @@ pub fn upgrade_websocket(req: &mut Request<Body>) -> Result<(Response<Body>, Web
     }
 }
 
+/// Simplified WebSocket handler helper - reduces boilerplate
+/// 
+/// Note: Due to framework constraints, this helper has limitations.
+/// For production WebSocket routes, use the manual approach shown in example/ws/chat.rs
+/// 
+/// This is a convenience wrapper that:
+/// - Checks for WebSocket upgrade
+/// - Handles the upgrade
+/// - Spawns the handler task
+/// - Returns appropriate response
+pub async fn handle_websocket<F, Fut>(
+    req: &mut Request<Body>,
+    handler: F,
+) -> super::Response
+where
+    F: FnOnce(WebSocket) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
+{
+    if !is_websocket_upgrade(req) {
+        return super::Response::json(&serde_json::json!({
+            "error": "WebSocket upgrade required"
+        }), 400);
+    }
+    
+    let (response, ws_connection) = match upgrade_websocket(req) {
+        Ok(result) => result,
+        Err(e) => {
+            return super::Response::json(&serde_json::json!({
+                "error": format!("Upgrade failed: {}", e)
+            }), 500);
+        }
+    };
+    
+    tokio::spawn(async move {
+        if let Err(e) = ws_connection.handle(handler).await {
+            log::error!("WebSocket error: {}", e);
+        }
+    });
+    
+    // Extract status and headers from Hyper response
+    let status = response.status().as_u16();
+    let headers: Vec<(String, String)> = response
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+    
+    let body = hyper::body::to_bytes(response.into_body()).await.unwrap_or_default();
+    
+    super::Response {
+        body,
+        status,
+        content_type: "text/plain",
+        headers,
+    }
+}
+
 /// WebSocket room for broadcasting messages
 #[derive(Clone)]
 pub struct WsRoom {

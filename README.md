@@ -165,34 +165,27 @@ pub async fn POST(_params: &HashMap<String, String>, body: &Bytes) -> Response {
 }
 ```
 
-### Example: Dynamic Route (`example/posts/[id].rs`)
+### Example: Dynamic Route with Improved DX (`example/improved_dx/[id].rs`)
 
 ```rust
 // 'api'
 use std::collections::HashMap;
-use crate::engine::{Response, Json};
-use bytes::Bytes;
+use crate::engine::{Response, extract_param};
 
-/// GET /posts/:id - Get a specific post
+/// GET /improved_dx/:id - Clean path parameter extraction
 pub async fn GET(params: &HashMap<String, String>) -> Response {
-    let id: usize = match params.get("id") {
-        Some(id_str) => match id_str.parse() {
-            Ok(n) => n,
-            Err(_) => {
-                return Response::json(&serde_json::json!({
-                    "error": "Invalid post ID"
-                }), 400);
-            }
-        },
-        None => {
+    // ✨ DX Improvement: One-line parameter extraction with automatic error handling
+    let user_id = match extract_param::<usize>(params, "id") {
+        Ok(id) => id,
+        Err(e) => {
             return Response::json(&serde_json::json!({
-                "error": "Missing post ID"
+                "error": e
             }), 400);
         }
     };
-
-    // Fetch and return post...
-    Response::json(&post, 200)
+    
+    // Your handler logic here
+    Response::json(&user_data, 200)
 }
 
 /// PUT /posts/:id - Update a post

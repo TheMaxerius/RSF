@@ -82,8 +82,8 @@ fn main() {
                     
                     let accepts_body = {
                         let mut found = false;
-                        for pattern in &[fn_sig_uppercase, fn_sig_lowercase] {
-                            if let Some(fn_pos) = content.find(pattern) {
+                        for pattern in &[&fn_sig_uppercase, &fn_sig_lowercase] {
+                            if let Some(fn_pos) = content.find(*pattern) {
                                 if let Some(closing_paren) = content[fn_pos..].find(')') {
                                     let signature = &content[fn_pos..fn_pos + closing_paren];
                                     if signature.contains("body:") || signature.contains("_body:") || signature.contains(", body") {
