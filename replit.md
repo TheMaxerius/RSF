@@ -21,6 +21,8 @@ Preferred communication style: Simple, everyday language.
 - Type-safe extractors for parsing request bodies: `Json<T>`, `Form`, `Text`, `RawBody`
 - Built-in URL decoding
 - Support for all standard HTTP methods (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD)
+- WebSocket support with hyper-tungstenite for real-time bidirectional communication
+- User-customizable middleware with before/after hooks for auth, logging, CORS, timing, etc.
 
 **Performance Optimizations**
 - Full Link-Time Optimization (LTO) producing 2.5 MB release binaries
@@ -89,6 +91,8 @@ Preferred communication style: Simple, everyday language.
 - Hyper: Low-level HTTP implementation (client, server, HTTP/1, HTTP/2)
 - Tower: Service abstractions and middleware
 - HTTP body handling and parsing utilities
+- hyper-tungstenite: WebSocket upgrade integration with Hyper
+- tokio-tungstenite: Async WebSocket implementation
 
 ## Performance Libraries
 

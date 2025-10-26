@@ -19,6 +19,8 @@ A blazingly fast, zero-overhead web framework for Rust with Next.js-style file-b
 - **File-based routing** like Next.js: `users/[id].rs` → `/users/:id`
 - **Async handlers** with Pin<Box<dyn Future>> for concurrency
 - **Type-safe extractors** (`Json<T>`, `Form`, `Text`, `RawBody`)
+- **WebSocket support** with hyper-tungstenite integration
+- **Middleware system** with before/after hooks
 - **Hot reload** during development (watches .rs files)
 - **Colored terminal output** with request logging
 - **Zero configuration** - just create route files
@@ -32,6 +34,8 @@ A blazingly fast, zero-overhead web framework for Rust with Next.js-style file-b
 - ✅ Request body parsing with type-safe extractors
 - ✅ URL decoding built-in
 - ✅ Unlimited nesting depth
+- ✅ WebSocket connections with real-time bidirectional communication
+- ✅ Middleware with before/after hooks for auth, logging, CORS, etc.
 
 ## 📦 Quick Start
 
