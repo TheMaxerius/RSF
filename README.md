@@ -11,10 +11,11 @@ A blazingly fast, zero-overhead web framework for Rust with Next.js-style file-b
 - [Blog API Demo](#-blog-api-demo)
 - [WebSocket Support](#-websocket-support)
 - [Middleware System](#-middleware-system)
+- [Developer Experience Features](#-developer-experience-features)
 - [How It Works](#-how-it-works)
 - [Performance](#-performance)
 - [Architecture](#-architecture)
-- [Response API](#-response-api)
+- [Documentation](#-documentation)
 
 ---
 
@@ -35,8 +36,9 @@ A blazingly fast, zero-overhead web framework for Rust with Next.js-style file-b
 - **File-based routing** like Next.js: `users/[id].rs` → `/users/:id`
 - **Async handlers** with Pin<Box<dyn Future>> for concurrency
 - **Type-safe extractors** (`Json<T>`, `Form`, `Text`, `RawBody`)
-- **WebSocket support** with hyper-tungstenite integration
-- **Middleware system** with before/after hooks
+- **DX improvements** - `extract_param<T>` helper, `AppError` type, Result-based error handling
+- **WebSocket support** with hyper-tungstenite integration and clean async API
+- **Middleware system** with before/after hooks and helper functions
 - **Hot reload** during development (watches .rs files)
 - **Colored terminal output** with request logging
 - **Zero configuration** - just create route files
@@ -52,6 +54,8 @@ A blazingly fast, zero-overhead web framework for Rust with Next.js-style file-b
 - ✅ Unlimited nesting depth
 - ✅ WebSocket connections with real-time bidirectional communication
 - ✅ Middleware with before/after hooks for auth, logging, CORS, etc.
+- ✅ DX helpers: `extract_param<T>` for one-line parameter parsing
+- ✅ `AppError` type for Result-based error handling with `?` operator
 
 ## 📦 Quick Start
 
@@ -68,6 +72,7 @@ cargo build --release
 Create `example/hello.rs`:
 
 ```rust
+// 'api'
 use std::collections::HashMap;
 use crate::engine::Response;
 
@@ -185,21 +190,51 @@ pub async fn GET(params: &HashMap<String, String>) -> Response {
     };
     
     // Your handler logic here
-    Response::json(&user_data, 200)
+    let user = UserDetail {
+        id: user_id,
+        name: format!("User {}", user_id),
+        email: format!("user{}@example.com", user_id),
+        status: "active".to_string(),
+    };
+    
+    Response::json(&user, 200)
+}
+```
+
+### Example: Result-Based Error Handling (`example/improved_dx.rs`)
+
+```rust
+// 'api'
+use crate::engine::{Response, AppError, Json};
+use bytes::Bytes;
+
+pub async fn POST(_params: &HashMap<String, String>, body: &Bytes) -> Response {
+    // ✨ DX Improvement: Use Result and ? operator for cleaner error handling
+    match handle_create_user(body) {
+        Ok(user) => Response::json(&user, 201),
+        Err(err) => err.into_response(),
+    }
 }
 
-/// PUT /posts/:id - Update a post
-pub async fn PUT(params: &HashMap<String, String>, body: &Bytes) -> Response {
-    // Parse ID and JSON body, update post...
-    Response::json(&updated_post, 200)
-}
-
-/// DELETE /posts/:id - Delete a post
-pub async fn DELETE(params: &HashMap<String, String>) -> Response {
-    // Delete post logic...
-    Response::json(&serde_json::json!({
-        "message": format!("Post {} deleted successfully", id)
-    }), 200)
+fn handle_create_user(body: &Bytes) -> Result<User, AppError> {
+    // Use ? operator for automatic error propagation
+    let request = Json::<CreateUser>::from_bytes(body)
+        .map_err(|e| AppError::bad_request(format!("Invalid JSON: {}", e)))?;
+    
+    // Validation with semantic error types
+    if request.0.name.is_empty() {
+        return Err(AppError::bad_request("Name cannot be empty"));
+    }
+    
+    if !request.0.email.contains('@') {
+        return Err(AppError::bad_request("Invalid email format"));
+    }
+    
+    Ok(User {
+        id: 123,
+        name: request.0.name,
+        email: request.0.email,
+    })
 }
 ```
 
@@ -227,6 +262,13 @@ curl -X DELETE http://localhost:5000/posts/1
 
 # View framework stats
 curl http://localhost:5000/stats
+
+# Test DX improvements
+curl http://localhost:5000/improved_dx
+curl http://localhost:5000/improved_dx/123
+curl -X POST http://localhost:5000/improved_dx \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","email":"alice@example.com"}'
 ```
 
 ## 🔌 WebSocket Support
@@ -426,6 +468,60 @@ curl http://localhost:5000/middleware_demo
 
 **📘 See [`MIDDLEWARE_GUIDE.md`](MIDDLEWARE_GUIDE.md) for complete middleware documentation**
 
+## 🎯 Developer Experience Features
+
+### 1. One-Line Parameter Extraction
+
+Stop writing nested match statements for path parameters:
+
+```rust
+// Before: Manual parsing (10+ lines)
+let id: usize = match params.get("id") {
+    Some(id_str) => match id_str.parse() {
+        Ok(n) => n,
+        Err(_) => return Response::json(&error, 400),
+    },
+    None => return Response::json(&error, 400),
+};
+
+// After: One line with extract_param<T>
+use crate::engine::extract_param;
+let id = extract_param::<usize>(params, "id")?;
+```
+
+### 2. Result-Based Error Handling
+
+Use the `?` operator for cleaner error handling:
+
+```rust
+use crate::engine::AppError;
+
+fn validate_user(data: &CreateUser) -> Result<User, AppError> {
+    if data.name.is_empty() {
+        return Err(AppError::bad_request("Name required"));
+    }
+    
+    if !data.email.contains('@') {
+        return Err(AppError::bad_request("Invalid email"));
+    }
+    
+    Ok(user)
+}
+
+// Errors automatically convert to JSON responses
+match validate_user(&data) {
+    Ok(user) => Response::json(&user, 201),
+    Err(err) => err.into_response(), // Automatic JSON error response
+}
+```
+
+### 3. Helpful Error Messages
+
+Framework provides clear, actionable error messages:
+- `"Missing path parameter: id"`
+- `"Invalid id parameter: not a number"`
+- `"Invalid JSON: expected value at line 1 column 1"`
+
 ## ⚙️ How It Works
 
 ### Compile-Time Route Generation
@@ -465,10 +561,10 @@ Box::pin(async move {
 
 ### Type-Safe Extractors
 
-Parse request bodies with compile-time type checking:
+Parse request bodies with compile-time type checking and clean error handling:
 
 ```rust
-use crate::engine::Json;
+use crate::engine::{Json, AppError};
 
 #[derive(Deserialize)]
 struct LoginRequest {
@@ -477,14 +573,27 @@ struct LoginRequest {
 }
 
 pub async fn POST(_params: &HashMap<String, String>, body: &Bytes) -> Response {
-    let request: Json<LoginRequest> = match Json::from_bytes(body) {
-        Ok(json) => json,
-        Err(e) => return Response::json(&error, 400),
-    };
+    // Use Result and ? operator for cleaner error handling
+    match handle_login(body) {
+        Ok(response) => response,
+        Err(err) => err.into_response(),
+    }
+}
+
+fn handle_login(body: &Bytes) -> Result<Response, AppError> {
+    let request = Json::<LoginRequest>::from_bytes(body)
+        .map_err(|e| AppError::bad_request(format!("Invalid JSON: {}", e)))?;
     
     // Access typed data
-    println!("User: {}", request.0.username);
-    Response::json(&success, 200)
+    let username = &request.0.username;
+    let password = &request.0.password;
+    
+    // Validation
+    if username.is_empty() || password.is_empty() {
+        return Err(AppError::bad_request("Username and password required"));
+    }
+    
+    Ok(Response::json(&serde_json::json!({"success": true}), 200))
 }
 ```
 
@@ -540,6 +649,10 @@ pub async fn POST(_params: &HashMap<String, String>, body: &Bytes) -> Response {
 │   │       ├── middleware.rs # CORS, compression, etc.
 │   │       ├── request.rs    # Request parsing
 │   │       ├── extractors.rs # Type-safe body extractors
+│   │       ├── error.rs      # AppError type for DX
+│   │       ├── helpers.rs    # DX helper functions
+│   │       ├── ws.rs         # WebSocket support
+│   │       ├── mw.rs         # Middleware system
 │   │       ├── static_files.rs # Static file serving
 │   │       └── generated_routes.rs # Auto-generated routes
 │   ├── build.rs      # Compile-time route generation
@@ -548,13 +661,41 @@ pub async fn POST(_params: &HashMap<String, String>, body: &Bytes) -> Response {
 │   ├── index.rs
 │   ├── posts.rs
 │   ├── posts/[id].rs
+│   ├── improved_dx.rs        # DX improvements demo
+│   ├── improved_dx/[id].rs   # Parameter extraction demo
 │   ├── middleware_demo.rs
 │   ├── ws_demo.rs
-│   └── ws/
-│       └── chat.rs
+│   ├── ws/
+│   │   └── chat.rs
 │   └── stats.rs
-└── README.md         # This file
+├── README.md         # This file
+├── DX_IMPROVEMENTS.md # Developer experience guide
+└── replit.md         # Project memory/architecture
 ```
+
+## 📚 Documentation
+
+Comprehensive guides are available for specific features:
+
+- **[DX_IMPROVEMENTS.md](DX_IMPROVEMENTS.md)** - Complete guide to developer experience improvements
+  - `extract_param<T>` helper for type-safe parameter parsing
+  - `AppError` type for Result-based error handling
+  - Migration guide from old patterns to new DX features
+  - Code examples and best practices
+
+- **Core Documentation** (in this README)
+  - File-based routing system
+  - WebSocket support
+  - Middleware system
+  - Performance benchmarks
+  - Architecture overview
+
+All features are demonstrated with working examples in the `example/` directory:
+- `example/improved_dx.rs` - DX improvements showcase
+- `example/improved_dx/[id].rs` - Parameter extraction demo
+- `example/ws/chat.rs` - WebSocket chat room
+- `example/middleware_demo.rs` - Middleware patterns
+- `example/posts.rs` - Full CRUD API
 
 ## 🔧 Configuration
 
@@ -597,17 +738,18 @@ PORT=3000 cargo run
 - [x] File-based routing with dynamic parameters
 - [x] Compile-time route generation
 - [x] Full async/await support
-- [x] Type-safe request body extractors
+- [x] Type-safe request body extractors (`Json<T>`, `Form`, `Text`, `RawBody`)
+- [x] **DX improvements** - `extract_param<T>` and `AppError` type
 - [x] Response helpers (Response::json)
 - [x] Hyper HTTP server integration
 - [x] Hot reload for development
 - [x] Request/response logging
 - [x] Environment configuration
-- [x] jemalloc allocator
-- [x] LTO optimization
-- [x] Rate Limiting
-- [x] Middleware
-- [x] Websocket Support
+- [x] jemalloc allocator for superior memory performance
+- [x] Full LTO optimization (2.5MB binaries)
+- [x] **WebSocket support** with hyper-tungstenite
+- [x] **Middleware system** with before/after hooks
+- [x] Result-based error handling
 
 ### Planned
 
