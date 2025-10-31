@@ -37,7 +37,7 @@ A blazingly fast, zero-overhead web framework for Rust with Next.js-style file-b
 
 ```bash
 git clone <repo>
-cd framework_test/core
+cd Rust-Framework/core
 cargo build --release
 ```
 
